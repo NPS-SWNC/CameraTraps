@@ -18,6 +18,7 @@ from tqdm import tqdm
 from data_management.annotations.annotation_constants import (
     detector_bbox_category_id_to_name)  # here id is int
 from visualization import visualization_utils as vis_utils
+from ct_utils import get_max_conf
 
 
 #%% Constants
@@ -34,7 +35,7 @@ def visualize_detector_output(detector_output_path: str,
                               out_dir: str,
                               images_dir: str,
                               is_azure: bool = False,
-                              confidence: float = 0.8,
+                              confidence_threshold: float = 0.8,
                               sample: int = -1,
                               output_image_width: int = 700,
                               random_seed: Optional[int] = None,
@@ -57,9 +58,9 @@ def visualize_detector_output(detector_output_path: str,
 
     Returns: list of str, paths to annotated images
     """
-    # arguments error checking
-    assert confidence > 0 and confidence < 1, (
-        f'Confidence threshold {confidence} is invalid, must be in (0, 1).')
+    
+    assert confidence_threshold > 0 and confidence_threshold < 1, (
+        f'Confidence threshold {confidence_threshold} is invalid, must be in (0, 1).')
 
     assert os.path.exists(detector_output_path), (
         f'Detector output file does not exist at {detector_output_path}.')
@@ -83,10 +84,11 @@ def visualize_detector_output(detector_output_path: str,
         'Detector output file should be a json with an "images" field.')
     images = detector_output['images']
 
-    detector_label_map = DEFAULT_DETECTOR_LABEL_MAP
     if 'detection_categories' in detector_output:
-        print('detection_categories provided')
+        print('Using custom label mapping')
         detector_label_map = detector_output['detection_categories']
+    else:
+        detector_label_map = DEFAULT_DETECTOR_LABEL_MAP        
 
     num_images = len(images)
     print(f'Detector output file contains {num_images} entries.')
@@ -107,7 +109,8 @@ def visualize_detector_output(detector_output_path: str,
 
     #%% Load images, annotate them and save
 
-    print('Rendering detections above a confidence threshold of {}'.format(confidence))
+    print('Rendering detections above a confidence threshold of {}'.format(
+        confidence_threshold))
     
     num_saved = 0
     annotated_img_paths = []
@@ -124,7 +127,8 @@ def visualize_detector_output(detector_output_path: str,
 
         assert 'detections' in entry and entry['detections'] is not None
         
-        if (entry['max_detection_conf'] < confidence) and render_detections_only:
+        max_conf = get_max_conf(entry)
+        if (max_conf < confidence_threshold) and render_detections_only:
             continue
         
         if is_azure:
@@ -149,7 +153,7 @@ def visualize_detector_output(detector_output_path: str,
 
         vis_utils.render_detection_bounding_boxes(
             entry['detections'], image, label_map=detector_label_map,
-            confidence_threshold=confidence)
+            confidence_threshold=confidence_threshold)
 
         for char in ['/', '\\', ':']:
             image_id = image_id.replace(char, '~')
@@ -166,6 +170,12 @@ def visualize_detector_output(detector_output_path: str,
     print('Skipped {} failed images (of {})'.format(len(failed_images),len(images)))
     print('Skipped {} missing images (of {})'.format(len(missing_images),len(images)))
     
+    with open("Failed_images.txt",'w') as st:
+        st.writelines(
+            ' '.join(failed_images)
+            )
+        
+
     print(f'Rendered detection results on {num_saved} images, '
           f'saved to {out_dir}')
 
@@ -228,7 +238,7 @@ def main() -> None:
     visualize_detector_output(
         detector_output_path=args.detector_output_path,
         out_dir=args.out_dir,
-        confidence=args.confidence,
+        confidence_threshold=args.confidence,
         images_dir=args.images_dir,
         is_azure=args.is_azure,
         sample=args.sample,
@@ -239,3 +249,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
